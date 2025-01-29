@@ -439,32 +439,26 @@ func handlerYouTube(w http.ResponseWriter, r *http.Request) ([]map[string]string
 		ytClient = youtube.Client{HTTPClient: &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}}
 	}
 
-	var (
-		playlist   *youtube.Playlist
-		isPlaylist bool
-		streamURL  string
-		videos     []map[string]string
-	)
-
-	video, err := ytClient.GetVideo(videoURL)
-	if err != nil {
-		playlist, err = ytClient.GetPlaylist(videoURL)
-		isPlaylist = true
-		if err != nil {
-			return nil, fmt.Errorf("error: %v", err)
-		}
-	}
+	// Verificar si la URL es de una playlist
+	isPlaylist := strings.Contains(videoURL, "list=")
+	var videos []map[string]string
 
 	if isPlaylist {
+		playlist, err := ytClient.GetPlaylist(videoURL)
+		if err != nil {
+			return nil, fmt.Errorf("error getting playlist: %v", err)
+		}
+
 		for _, entry := range playlist.Videos {
-			video, err = ytClient.VideoFromPlaylistEntry(entry)
+			video, err := ytClient.VideoFromPlaylistEntry(entry)
 			if err != nil {
-				return nil, fmt.Errorf("error: %v", err)
+				continue // Saltar videos que den error
 			}
 
-			streamURL, err = ytClient.GetStreamURL(video, &video.Formats[0])
+			format := video.Formats.Best(youtube.FormatAudioOnly)
+			streamURL, err := ytClient.GetStreamURL(video, &format)
 			if err != nil {
-				return nil, fmt.Errorf("error: %v", err)
+				continue
 			}
 
 			videos = append(videos, map[string]string{
@@ -482,10 +476,17 @@ func handlerYouTube(w http.ResponseWriter, r *http.Request) ([]map[string]string
 		return videos, nil
 
 	} else {
-		streamURL, err = ytClient.GetStreamURL(video, &video.Formats[0])
+		video, err := ytClient.GetVideo(videoURL)
 		if err != nil {
-			return nil, fmt.Errorf("error: %v", err)
+			return nil, fmt.Errorf("error getting video: %v", err)
 		}
+
+		format := video.Formats.Best(youtube.FormatAudioOnly) // Puedes cambiar a FormatVideo
+		streamURL, err := ytClient.GetStreamURL(video, &format)
+		if err != nil {
+			return nil, fmt.Errorf("error getting stream URL: %v", err)
+		}
+
 		videos = append(videos, map[string]string{
 			"ID":          video.ID,
 			"author":      video.Author,
@@ -500,3 +501,4 @@ func handlerYouTube(w http.ResponseWriter, r *http.Request) ([]map[string]string
 		return videos, nil
 	}
 }
+
